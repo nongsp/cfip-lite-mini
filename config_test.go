@@ -10,6 +10,9 @@ import (
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.Domain != DefaultDomain {
+		t.Errorf("Domain = %q, want %q", cfg.Domain, DefaultDomain)
+	}
 	if cfg.Port != DefaultPort {
 		t.Errorf("Port = %d, want %d", cfg.Port, DefaultPort)
 	}
@@ -27,6 +30,12 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.UserAgent != DefaultUserAgent {
 		t.Errorf("UserAgent = %q, want %q", cfg.UserAgent, DefaultUserAgent)
+	}
+	if cfg.HTTP {
+		t.Error("HTTP should default to false")
+	}
+	if cfg.PingTimes != DefaultPingTimes {
+		t.Errorf("PingTimes = %d, want %d", cfg.PingTimes, DefaultPingTimes)
 	}
 }
 
@@ -99,6 +108,25 @@ func TestLoadConfigFileInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFileHTTPFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "domain: tv.example.com\nhttp: true\nping_times: 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile: %v", err)
+	}
+	if !cfg.HTTP {
+		t.Error("HTTP = false, want true")
+	}
+	if cfg.PingTimes != 3 {
+		t.Errorf("PingTimes = %d, want 3", cfg.PingTimes)
+	}
+}
+
 func TestConfigValidate(t *testing.T) {
 	valid := DefaultConfig()
 	valid.Domain = "d.example.com"
@@ -107,6 +135,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	cfg := DefaultConfig()
+	cfg.Domain = ""
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for empty domain")
 	}
@@ -130,6 +159,13 @@ func TestConfigValidate(t *testing.T) {
 	cfg.MaxIPs = AbsMaxIPs + 1
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "maximum") {
 		t.Fatalf("expected max_ips cap error, got %v", err)
+	}
+
+	cfg = DefaultConfig()
+	cfg.Domain = "d.example.com"
+	cfg.PingTimes = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for zero ping_times")
 	}
 }
 

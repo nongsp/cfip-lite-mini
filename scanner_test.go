@@ -37,6 +37,21 @@ func (r *repeatingSource) Count() uint64 { return uint64(r.n) }
 
 func newTestScanner(t *testing.T, ts *httptest.Server, timeout time.Duration) *Scanner {
 	t.Helper()
+	cfg := testConfig(t, ts, timeout)
+	cfg.HTTP = false
+	return NewScanner(cfg)
+}
+
+func newTestHTTPingScanner(t *testing.T, ts *httptest.Server, timeout time.Duration, pingTimes int) *Scanner {
+	t.Helper()
+	cfg := testConfig(t, ts, timeout)
+	cfg.HTTP = true
+	cfg.PingTimes = pingTimes
+	return NewScanner(cfg)
+}
+
+func testConfig(t *testing.T, ts *httptest.Server, timeout time.Duration) *Config {
+	t.Helper()
 	pool := x509.NewCertPool()
 	pool.AddCert(ts.Certificate())
 
@@ -46,8 +61,7 @@ func newTestScanner(t *testing.T, ts *httptest.Server, timeout time.Duration) *S
 	cfg.Timeout = Duration(timeout)
 	cfg.UserAgent = "cfip-lite-mini-test/1.0"
 	cfg.TLSRootCAs = pool
-
-	return NewScanner(cfg)
+	return cfg
 }
 
 func TestProbeUsesSNIAndHost(t *testing.T) {
@@ -250,5 +264,145 @@ func TestProgressCallback(t *testing.T) {
 	}
 	if lastScanned.Load() != 50 {
 		t.Errorf("last scanned = %d, want 50", lastScanned.Load())
+	}
+}
+
+// TestProbeHTTPingUsesSNIAndHost verifies the -http method keeps the enforced
+// TLS SNI and HTTP Host behaviour of the yx-tools style scan.
+func TestProbeHTTPingUsesSNIAndHost(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != testDomain {
+			http.Error(w, "bad host: "+r.Host, 500)
+			return
+		}
+		if r.TLS == nil || r.TLS.ServerName != testDomain {
+			http.Error(w, "bad SNI", 500)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	s := newTestHTTPingScanner(t, ts, 500*time.Millisecond, 2)
+	res := s.probeHTTPing(context.Background(), netip.MustParseAddr("127.0.0.1"))
+	if !validStatus(res.Status) || res.Status != http.StatusOK {
+		t.Fatalf("httping probe failed, result: %+v", res)
+	}
+	if res.Score != 100 {
+		t.Errorf("score = %d, want 100", res.Score)
+	}
+}
+
+func TestProbeHTTPingStatusFiltering(t *testing.T) {
+	cases := []struct {
+		status    int
+		wantValid bool
+	}{
+		{200, true},
+		{301, true},
+		{302, true},
+		{403, true},
+		{404, false},
+		{500, false},
+	}
+	for _, c := range cases {
+		status := c.status
+		ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+		}))
+		s := newTestHTTPingScanner(t, ts, 500*time.Millisecond, 1)
+		res := s.probeHTTPing(context.Background(), netip.MustParseAddr("127.0.0.1"))
+		if validStatus(res.Status) != c.wantValid {
+			t.Errorf("status %d: valid = %v, want %v", status, validStatus(res.Status), c.wantValid)
+		}
+		ts.Close()
+	}
+}
+
+// TestProbeHTTPingMultipleTimes verifies the latency is averaged over
+// PingTimes requests.
+func TestProbeHTTPingMultipleTimes(t *testing.T) {
+	var hits atomic.Int32
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	s := newTestHTTPingScanner(t, ts, 500*time.Millisecond, 3)
+	res := s.probeHTTPing(context.Background(), netip.MustParseAddr("127.0.0.1"))
+	if !validStatus(res.Status) {
+		t.Fatalf("probe failed: %+v", res)
+	}
+	if hits.Load() != 3 {
+		t.Errorf("server saw %d requests, want 3", hits.Load())
+	}
+	if res.Delay <= 0 {
+		t.Errorf("delay = %s, want > 0", res.Delay)
+	}
+}
+
+func TestProbeHTTPingTimeout(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	s := newTestHTTPingScanner(t, ts, 50*time.Millisecond, 1)
+	res := s.probeHTTPing(context.Background(), netip.MustParseAddr("127.0.0.1"))
+	if validStatus(res.Status) {
+		t.Fatalf("timed out probe reported valid result: %+v", res)
+	}
+}
+
+// TestProbeStopsRedirect verifies that redirect responses are reported as-is
+// (301/302) and the Location host is never dialed, in both scan modes.
+func TestProbeStopsRedirect(t *testing.T) {
+	for _, mode := range []string{"default", "httping"} {
+		var hits atomic.Int32
+		ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			http.Redirect(w, r, "https://127.0.0.1:9999/elsewhere", http.StatusFound)
+		}))
+
+		var res Result
+		if mode == "default" {
+			res = newTestScanner(t, ts, 500*time.Millisecond).probe(context.Background(), netip.MustParseAddr("127.0.0.1"))
+		} else {
+			res = newTestHTTPingScanner(t, ts, 500*time.Millisecond, 1).probeHTTPing(context.Background(), netip.MustParseAddr("127.0.0.1"))
+		}
+		ts.Close()
+
+		if res.Status != http.StatusFound {
+			t.Errorf("mode %s: status = %d, want 302 (redirect must not be followed)", mode, res.Status)
+		}
+		if !validStatus(res.Status) {
+			t.Errorf("mode %s: 302 should count as valid", mode)
+		}
+		if hits.Load() != 1 {
+			t.Errorf("mode %s: server saw %d requests, want 1 (redirect target must not be dialed)", mode, hits.Load())
+		}
+	}
+}
+
+// TestScanHTTPingMode runs a full concurrent scan through the -http path.
+func TestScanHTTPingMode(t *testing.T) {
+	var hits atomic.Int32
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	s := newTestHTTPingScanner(t, ts, 500*time.Millisecond, 2)
+	src := &repeatingSource{addr: netip.MustParseAddr("127.0.0.1"), n: 20}
+
+	results := s.Scan(context.Background(), src, 8, 20)
+	if len(results) != 20 {
+		t.Fatalf("got %d results, want 20", len(results))
+	}
+	if hits.Load() != 40 {
+		t.Errorf("server saw %d requests, want 40 (20 IPs x 2 ping-times)", hits.Load())
 	}
 }

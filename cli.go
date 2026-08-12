@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -35,6 +36,8 @@ type CLIOptions struct {
 	userAgent   string
 	config      string
 	outputDir   string
+	http        bool
+	pingTimes   int
 	version     bool
 
 	portSet        bool
@@ -43,13 +46,16 @@ type CLIOptions struct {
 	topSet         bool
 	maxIPsSet      bool
 	userAgentSet   bool
+	httpSet        bool
+	pingTimesSet   bool
 }
 
 func newFlagSet(opts *CLIOptions, out io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet("cfip-lite-mini", flag.ContinueOnError)
 	fs.SetOutput(out)
+	fs.Usage = func() { usage(os.Stdout) }
 
-	fs.StringVar(&opts.domain, "domain", "", "target domain used for TLS SNI and HTTP Host")
+	fs.StringVar(&opts.domain, "domain", "", "target domain used for TLS SNI and HTTP Host (default \"ipv4.svi.cc.cd\")")
 	fs.Var(&opts.cidr, "cidr", "CIDR block to scan, repeatable (e.g. 43.198.0.0/16)")
 	fs.Var(&opts.ip, "ip", "single IP to scan, repeatable (e.g. 43.198.5.166)")
 	fs.Var(&opts.rng, "range", "IP range start-end, repeatable (e.g. 159.60.146.10-159.60.146.200)")
@@ -61,6 +67,8 @@ func newFlagSet(opts *CLIOptions, out io.Writer) *flag.FlagSet {
 	fs.StringVar(&opts.userAgent, "user-agent", "", "User-Agent header sent to targets")
 	fs.StringVar(&opts.config, "config", "config.yaml", "path to the YAML config file")
 	fs.StringVar(&opts.outputDir, "output-dir", ".", "directory where best_ip.txt and result.json are written")
+	fs.BoolVar(&opts.http, "http", false, "use yx-tools style HTTPing (per-IP transport, RST close, averaged multi-request latency)")
+	fs.IntVar(&opts.pingTimes, "ping-times", 0, "requests per IP when -http is enabled (default 1)")
 	fs.BoolVar(&opts.version, "version", false, "print version and exit")
 
 	return fs
@@ -90,6 +98,10 @@ func parseCLI(args []string) (*CLIOptions, error) {
 			opts.maxIPsSet = true
 		case "user-agent":
 			opts.userAgentSet = true
+		case "http":
+			opts.httpSet = true
+		case "ping-times":
+			opts.pingTimesSet = true
 		}
 	})
 	return opts, nil
@@ -104,6 +116,7 @@ Usage:
 
 Options:
   -domain string       target domain used for TLS SNI and HTTP Host
+                       (default "ipv4.svi.cc.cd")
   -cidr string         CIDR block to scan, repeatable (e.g. 43.198.0.0/16)
   -ip string           single IP to scan, repeatable (e.g. 43.198.5.166)
   -range string        IP range start-end, repeatable (e.g. 159.60.146.10-159.60.146.200)
@@ -115,8 +128,12 @@ Options:
   -user-agent string   User-Agent header sent to targets
   -config string       path to the YAML config file (default "config.yaml")
   -output-dir string   directory for output files (default ".")
+  -http                use yx-tools style HTTPing: per-IP transport with
+                       RST close, redirects stopped, latency averaged over
+                       -ping-times requests (default false)
+  -ping-times int      requests per IP when -http is enabled (default 1)
   -version             print version and exit
-  -h, -help            show this help
+  -h, -help            show this help and exit
 
 CIDR/IP/Range flags may be repeated and override ip_range from config.yaml.
 `)
@@ -151,6 +168,12 @@ func (o *CLIOptions) merge(cfg *Config) *Config {
 	}
 	if o.userAgentSet {
 		cfg.UserAgent = o.userAgent
+	}
+	if o.httpSet {
+		cfg.HTTP = o.http
+	}
+	if o.pingTimesSet {
+		cfg.PingTimes = o.pingTimes
 	}
 	return cfg
 }

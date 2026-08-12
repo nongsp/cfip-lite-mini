@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net"
@@ -57,6 +58,9 @@ type Scanner struct {
 	Port       int
 	Timeout    time.Duration
 	UserAgent  string
+	HTTP       bool
+	PingTimes  int
+	TLSRootCAs *x509.CertPool
 	OnProgress func(scanned, total uint64)
 
 	transport *http.Transport
@@ -87,19 +91,48 @@ func NewScanner(cfg *Config) *Scanner {
 		ForceAttemptHTTP2:     true,
 	}
 
+	pingTimes := cfg.PingTimes
+	if pingTimes < 1 {
+		pingTimes = 1
+	}
+
 	return &Scanner{
-		Domain:    cfg.Domain,
-		Port:      cfg.Port,
-		Timeout:   timeout,
-		UserAgent: cfg.UserAgent,
-		transport: transport,
-		client:    &http.Client{Transport: transport, Timeout: timeout},
+		Domain:     cfg.Domain,
+		Port:       cfg.Port,
+		Timeout:    timeout,
+		UserAgent:  cfg.UserAgent,
+		HTTP:       cfg.HTTP,
+		PingTimes:  pingTimes,
+		TLSRootCAs: cfg.TLSRootCAs,
+		transport:  transport,
+		// Stop redirects in every mode: following a redirect would re-dial the
+		// Location host and defeat the enforced SNI/Host (the same approach as
+		// yx-tools' -http scanning method).
+		client: &http.Client{
+			Transport:     transport,
+			Timeout:       timeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}
 }
 
-// probe checks a single IP and returns its Result. Network errors, timeouts,
-// TLS failures and invalid status codes simply yield a non-valid Result and
-// never abort the whole scan.
+// newRequest builds the HTTPS request that always targets IP:port while
+// forcing the HTTP Host header to the target domain.
+func (s *Scanner) newRequest(ctx context.Context, addr string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+"/", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = s.Domain
+	if s.UserAgent != "" {
+		req.Header.Set("User-Agent", s.UserAgent)
+	}
+	return req, nil
+}
+
+// probe checks a single IP using the shared transport (default mode).
+// Network errors, timeouts, TLS failures and invalid status codes simply
+// yield a non-valid Result and never abort the whole scan.
 func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.Port))
 	start := time.Now()
@@ -107,16 +140,9 @@ func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
 	probeCtx, cancel := context.WithTimeout(ctx, s.Timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "https://"+addr+"/", nil)
+	req, err := s.newRequest(probeCtx, addr)
 	if err != nil {
 		return Result{IP: ip.String(), Status: 0, Delay: Duration(time.Since(start))}
-	}
-	// HTTP Host header must be the target domain, never the IP.
-	req.Host = s.Domain
-	// Require the request to go through the real network (the transport is
-	// already configured to dial ip:port and to send SNI for s.Domain).
-	if s.UserAgent != "" {
-		req.Header.Set("User-Agent", s.UserAgent)
 	}
 
 	resp, err := s.client.Do(req)
@@ -136,6 +162,101 @@ func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
 	}
 }
 
+// probeHTTPing checks a single IP using the yx-tools -http scanning method:
+//
+//   - a dedicated transport per IP, dialing IP:port, torn down with
+//     CloseIdleConnections as soon as the probe finishes;
+//   - SetLinger(0) so TCP connections close with RST instead of lingering in
+//     TIME_WAIT, which would otherwise exhaust the local port pool when
+//     scanning thousands of candidates;
+//   - redirects stopped via CheckRedirect, so a 301/302 is reported as-is and
+//     the connection is never re-dialed to the Location host;
+//   - the latency is averaged over PingTimes requests per IP.
+func (s *Scanner) probeHTTPing(ctx context.Context, ip netip.Addr) Result {
+	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.Port))
+
+	tr := &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+			if err != nil {
+				return nil, err
+			}
+			if tc, ok := conn.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0)
+			}
+			return conn, nil
+		},
+		TLSClientConfig: &tls.Config{
+			ServerName: s.Domain,
+			RootCAs:    s.TLSRootCAs,
+		},
+		TLSHandshakeTimeout:   s.Timeout,
+		ResponseHeaderTimeout: s.Timeout,
+		DisableKeepAlives:     true,
+		ForceAttemptHTTP2:     true,
+	}
+	defer tr.CloseIdleConnections()
+
+	hc := &http.Client{
+		Transport: tr,
+		Timeout:   s.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	statusCode := 0
+	success := 0
+	var totalDelay time.Duration
+	var start time.Time
+
+	for i := 0; i < s.PingTimes; i++ {
+		probeCtx, cancel := context.WithTimeout(ctx, s.Timeout)
+		start = time.Now()
+
+		req, err := s.newRequest(probeCtx, addr)
+		if err != nil {
+			cancel()
+			break
+		}
+		if i == s.PingTimes-1 {
+			req.Header.Set("Connection", "close")
+		}
+
+		resp, err := hc.Do(req)
+		if err != nil {
+			cancel()
+			if i == 0 {
+				break
+			}
+			continue
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		_ = resp.Body.Close()
+		cancel()
+
+		if i == 0 {
+			if !validStatus(resp.StatusCode) {
+				return Result{IP: ip.String(), Status: resp.StatusCode, Delay: Duration(time.Since(start))}
+			}
+			statusCode = resp.StatusCode
+		}
+		success++
+		totalDelay += time.Since(start)
+	}
+
+	if success == 0 || statusCode == 0 {
+		return Result{IP: ip.String(), Status: 0, Delay: Duration(time.Since(start))}
+	}
+	return Result{
+		IP:     ip.String(),
+		Status: statusCode,
+		Delay:  Duration(totalDelay / time.Duration(success)),
+		Score:  scoreFor(statusCode),
+	}
+}
+
 // Scan runs the full concurrent scan over src and returns the valid Results.
 // All goroutines, channels and idle connections are cleaned up before return.
 func (s *Scanner) Scan(ctx context.Context, src Source, concurrency int, total uint64) []Result {
@@ -150,7 +271,12 @@ func (s *Scanner) Scan(ctx context.Context, src Source, concurrency int, total u
 		go func() {
 			defer wg.Done()
 			for ip := range ips {
-				res := s.probe(ctx, ip)
+				var res Result
+				if s.HTTP {
+					res = s.probeHTTPing(ctx, ip)
+				} else {
+					res = s.probe(ctx, ip)
+				}
 				select {
 				case results <- res:
 				case <-ctx.Done():

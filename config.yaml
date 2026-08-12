@@ -1,5 +1,5 @@
-# 目标域名：既用作 TLS SNI，也用作 HTTP Host
-domain: tv.example.com
+# 目标域名：既用作 TLS SNI，也用作 HTTP Host（默认 ipv4.svi.cc.cd）
+domain: ipv4.svi.cc.cd
 
 # IP 来源：支持 CIDR、单 IP、起止范围，可混合多条
 ip_range:
@@ -24,3 +24,9 @@ max_ips: 1000000
 
 # 请求 User-Agent
 user_agent: cfip-lite-mini/1.0
+
+# 使用 yx-tools 风格的 HTTPing 测速方法（每 IP 独立连接、RST 关闭、阻止重定向）
+http: false
+
+# 启用 http 时每个 IP 的测速请求次数，延迟取平均值
+ping_times: 1

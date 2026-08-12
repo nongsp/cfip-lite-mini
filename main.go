@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -20,6 +22,9 @@ func main() {
 func run(args []string) int {
 	opts, err := parseCLI(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		fmt.Fprintln(os.Stderr, "run 'cfip-lite-mini -h' for usage")
 		return 2
@@ -80,6 +85,11 @@ func run(args []string) int {
 	fmt.Printf("total IPs:    %d\n", total)
 	fmt.Printf("concurrency:  %d\n", cfg.Concurrency)
 	fmt.Printf("timeout:      %s\n", cfg.Timeout)
+	if cfg.HTTP {
+		fmt.Printf("httping:      enabled (ping-times %d)\n", cfg.PingTimes)
+	} else {
+		fmt.Println("httping:      disabled (default single-request probe)")
+	}
 	fmt.Println()
 
 	scanStart := time.Now()

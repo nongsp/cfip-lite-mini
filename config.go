@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	DefaultDomain      = "ipv4.svi.cc.cd"
 	DefaultPort        = 443
 	DefaultTimeout     = 300 * time.Millisecond
 	DefaultConcurrency = 500
@@ -17,6 +18,7 @@ const (
 	DefaultMaxIPs      = 1_000_000
 	AbsMaxIPs          = 10_000_000
 	DefaultUserAgent   = "cfip-lite-mini/1.0"
+	DefaultPingTimes   = 1
 )
 
 // Config holds all scanning settings.
@@ -30,6 +32,8 @@ type Config struct {
 	Top         int      `yaml:"top"`
 	MaxIPs      int      `yaml:"max_ips"`
 	UserAgent   string   `yaml:"user_agent"`
+	HTTP        bool     `yaml:"http"`
+	PingTimes   int      `yaml:"ping_times"`
 
 	// TLSRootCAs is only used by tests to trust self-signed local servers.
 	TLSRootCAs *x509.CertPool `yaml:"-"`
@@ -70,12 +74,14 @@ func (d Duration) MarshalYAML() (interface{}, error) {
 // DefaultConfig returns a config populated with the built-in defaults.
 func DefaultConfig() *Config {
 	return &Config{
+		Domain:      DefaultDomain,
 		Port:        DefaultPort,
 		Timeout:     Duration(DefaultTimeout),
 		Concurrency: DefaultConcurrency,
 		Top:         DefaultTop,
 		MaxIPs:      DefaultMaxIPs,
 		UserAgent:   DefaultUserAgent,
+		PingTimes:   DefaultPingTimes,
 	}
 }
 
@@ -111,6 +117,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Top <= 0 {
 		return fmt.Errorf("top must be positive")
+	}
+	if c.PingTimes <= 0 {
+		return fmt.Errorf("ping_times must be positive")
 	}
 	if c.MaxIPs <= 0 {
 		return fmt.Errorf("max_ips must be positive")

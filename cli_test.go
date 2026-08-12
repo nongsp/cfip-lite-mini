@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"testing"
 	"time"
 )
@@ -121,6 +123,62 @@ func TestMergeCLIKeepsConfigWhenNotGiven(t *testing.T) {
 	merged := opts.merge(cfg)
 	if merged.Top != 42 {
 		t.Errorf("Top = %d, want 42 (kept from config)", merged.Top)
+	}
+}
+
+func TestParseCLIHTTPFlags(t *testing.T) {
+	opts, err := parseCLI([]string{"-http", "-ping-times", "4"})
+	if err != nil {
+		t.Fatalf("parseCLI: %v", err)
+	}
+	if !opts.http || !opts.httpSet {
+		t.Errorf("http = %v, set = %v", opts.http, opts.httpSet)
+	}
+	if opts.pingTimes != 4 || !opts.pingTimesSet {
+		t.Errorf("pingTimes = %d, set = %v", opts.pingTimes, opts.pingTimesSet)
+	}
+}
+
+func TestMergeCLIHTTPOverrides(t *testing.T) {
+	cfg := DefaultConfig()
+
+	opts, err := parseCLI([]string{"-http", "-ping-times", "5"})
+	if err != nil {
+		t.Fatalf("parseCLI: %v", err)
+	}
+	merged := opts.merge(cfg)
+	if !merged.HTTP {
+		t.Error("HTTP = false, want true after merge")
+	}
+	if merged.PingTimes != 5 {
+		t.Errorf("PingTimes = %d, want 5", merged.PingTimes)
+	}
+}
+
+func TestMergeCLICanDisableHTTPFromConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.HTTP = true
+	cfg.PingTimes = 3
+
+	// CLI explicitly passes -http=false, overriding config.yaml
+	opts, err := parseCLI([]string{"-http=false"})
+	if err != nil {
+		t.Fatalf("parseCLI: %v", err)
+	}
+	merged := opts.merge(cfg)
+	if merged.HTTP {
+		t.Error("HTTP = true, want false after CLI override")
+	}
+}
+
+func TestHelpFlag(t *testing.T) {
+	_, err := parseCLI([]string{"-h"})
+	if err == nil || !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("-h should return flag.ErrHelp, got %v", err)
+	}
+	_, err = parseCLI([]string{"-help"})
+	if err == nil || !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("-help should return flag.ErrHelp, got %v", err)
 	}
 }
 
