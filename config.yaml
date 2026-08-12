@@ -1,0 +1,26 @@
+# 目标域名：既用作 TLS SNI，也用作 HTTP Host
+domain: tv.example.com
+
+# IP 来源：支持 CIDR、单 IP、起止范围，可混合多条
+ip_range:
+  - 43.198.0.0/16
+  - 159.60.146.10-159.60.146.200
+  - 43.198.5.166
+
+# HTTPS 端口
+port: 443
+
+# 单个 IP 从请求开始到 HTTP 响应返回的整个生命周期超时
+timeout: 300ms
+
+# 并发 worker 数量
+concurrency: 500
+
+# 输出 top 个最佳 IP
+top: 30
+
+# 最大扫描 IP 数量（绝对上限 10000000）
+max_ips: 1000000
+
+# 请求 User-Agent
+user_agent: cfip-lite-mini/1.0

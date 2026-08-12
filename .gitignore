@@ -1,0 +1,11 @@
+# Build artifacts
+/cfip-lite-mini
+/cfip-lite-mini.exe
+/dist/
+
+# Scan outputs
+/best_ip.txt
+/result.json
+
+# Local config
+config.local.yaml
