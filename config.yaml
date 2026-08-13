@@ -25,8 +25,9 @@ max_ips: 1000000
 # 请求 User-Agent
 user_agent: cfip-lite-mini/1.0
 
-# 使用 yx-tools 风格的 HTTPing 测速方法（每 IP 独立连接、RST 关闭、阻止重定向）
-http: false
+# 使用 yx-tools 风格的 HTTPing 测速方法（每 IP 独立连接、RST 关闭、阻止重定向）。
+# 默认开启；如需关闭请设为 false
+http: true
 
 # 启用 http 时每个 IP 的测速请求次数，延迟取平均值
 ping_times: 1

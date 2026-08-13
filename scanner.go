@@ -117,9 +117,11 @@ func NewScanner(cfg *Config) *Scanner {
 }
 
 // newRequest builds the HTTPS request that always targets IP:port while
-// forcing the HTTP Host header to the target domain.
+// forcing the HTTP Host header to the target domain. yx-tools' -http method
+// uses HEAD requests, which are full HTTP exchanges (TLS handshake + server
+// response) without transferring the body.
 func (s *Scanner) newRequest(ctx context.Context, addr string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+"/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+addr+"/", nil)
 	if err != nil {
 		return nil, err
 	}

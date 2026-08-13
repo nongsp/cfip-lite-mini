@@ -81,6 +81,7 @@ func DefaultConfig() *Config {
 		Top:         DefaultTop,
 		MaxIPs:      DefaultMaxIPs,
 		UserAgent:   DefaultUserAgent,
+		HTTP:        true,
 		PingTimes:   DefaultPingTimes,
 	}
 }

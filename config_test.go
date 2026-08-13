@@ -31,8 +31,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.UserAgent != DefaultUserAgent {
 		t.Errorf("UserAgent = %q, want %q", cfg.UserAgent, DefaultUserAgent)
 	}
-	if cfg.HTTP {
-		t.Error("HTTP should default to false")
+	if !cfg.HTTP {
+		t.Error("HTTP should default to true (yx-tools style HTTPing on by default)")
 	}
 	if cfg.PingTimes != DefaultPingTimes {
 		t.Errorf("PingTimes = %d, want %d", cfg.PingTimes, DefaultPingTimes)

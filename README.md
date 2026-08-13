@@ -9,7 +9,7 @@
         ↓
 展开 IP（迭代器，不整段载入内存）
         ↓
-并发 HTTPS 请求（worker pool）
+并发 HTTPS 请求（worker pool，默认 yx-tools 风格 HTTPing）
         ↓
 TLS SNI = domain + HTTP Host = domain
         ↓
@@ -30,13 +30,14 @@ TLS SNI = domain + HTTP Host = domain
 
 ## 工作原理
 
-对每个 IP 直接发起 HTTPS GET `/` 请求：
+对每个 IP 直接发起 HTTPS HEAD `/` 请求（完整 HTTP 请求，含 TLS 握手和服务端响应，默认使用 yx-tools 风格的 `-http` HTTPing 扫描方法）：
 
 | 项 | 值 |
 | --- | --- |
 | 连接目标 | `IP:port`（强制，不经过 DNS） |
 | TLS SNI | `domain`（`TLSClientConfig.ServerName`） |
 | HTTP Host | `domain`（`req.Host`） |
+| 请求方法 | HEAD（默认 `-http` 模式，不含响应体） |
 
 程序不使用 `http.Get("https://" + ip)` 这类隐式实现，而是显式控制 `TLSClientConfig.ServerName`、`req.Host`、`req.URL.Host` 与 `DialContext`，确保连接目标是 IP 而握手与 Host 是目标域名。
 
@@ -102,26 +103,32 @@ cp config.yaml config.local.yaml
 | `-user-agent` | 请求 User-Agent | 否 |
 | `-config` | YAML 配置文件路径，默认 `config.yaml` | 否 |
 | `-output-dir` | 输出目录，默认当前目录 | 否 |
-| `-http` | 启用 yx-tools 风格的 HTTPing 测速方法（默认 `false`） | 否 |
+| `-http` | 启用 yx-tools 风格的 HTTPing 测速方法（默认 `true`，即默认使用） | 否 |
 | `-ping-times` | 启用 `-http` 后每个 IP 的测速请求次数，延迟取平均值（默认 `1`） | 否 |
 | `-version` | 打印版本并退出 | 否 |
 | `-h, -help` | 显示完整使用说明并退出 | 否 |
 
 配置优先级：**CLI > config.yaml > 默认值**。只要在 CLI 中给出任一 `-cidr/-ip/-range`，`ip_range` 整体被 CLI 覆盖。
 
-## yx-tools HTTPing 扫描方法（-http）
+## yx-tools HTTPing 扫描方法（-http，默认开启）
 
-借鉴 [yx-tools](https://github.com/byJoey/yx-tools) 的 `-http` 测速方法，解决大范围扫描时的连接资源问题：
+借鉴 [yx-tools](https://github.com/byJoey/yx-tools) 的 `-http` 测速方法，**默认开启**，解决大范围扫描时的连接资源问题（尤其在 Windows 上，系统临时端口范围小，非 HTTPing 的共享连接池会导致 TIME_WAIT 端口耗尽、扫不到 IP）：
 
 - **每个 IP 独立 Transport**：探测完立即 `CloseIdleConnections()` 回收，连接不留在空闲池里等超时，避免本地临时端口被几千个候选 IP 占满。
 - **`SetLinger(0)` RST 关闭**：测速连接用完即弃，直接发 RST 而不是四次挥手，防止连接进入 60 秒 TIME_WAIT 占住端口，波及机器上其它业务。
 - **阻止重定向**：`CheckRedirect` 返回 `http.ErrUseLastResponse`，301/302 原样上报，连接不会被重新拨号到 Location 主机——这是对 SNI/Host 强制的重要补充（默认模式同样阻止重定向）。
 - **多次测速取平均**：每个 IP 连续请求 `-ping-times` 次（最后一次强制 `Connection: close`），延迟取平均值，比单次请求更能反映真实链路质量。
-- **不完整下载**：请求 `GET /`，只读取至多 1KB 响应体即关闭连接。
+- **完整 HTTP 请求**：HEAD 请求含 TLS 握手与服务端响应，不下载响应体，探测更轻量。
 
 ```bash
-# 对 43.198.0.0/16 使用 HTTPing 方法，每 IP 测 4 次取平均延迟
-./cfip-lite-mini -domain ipv4.svi.cc.cd -cidr 43.198.0.0/16 -http -ping-times 4
+# 默认即 HTTPing（无需 -http），每 IP 测 4 次取平均延迟
+./cfip-lite-mini -cidr 43.198.0.0/16 -ping-times 4
+
+# 显式指定（默认已开启）
+./cfip-lite-mini -cidr 43.198.0.0/16 -http
+
+# 需要关闭时
+./cfip-lite-mini -cidr 43.198.0.0/16 -http=false
 
 # 效果等同的配置文件方式
 ./cfip-lite-mini -config config.yaml
@@ -145,7 +152,7 @@ concurrency: 500
 top: 30
 max_ips: 1000000
 user_agent: cfip-lite-mini/1.0
-http: false
+http: true
 ping_times: 1
 ```
 
@@ -272,7 +279,7 @@ docker run --rm -it \
 
 排序：`delay 升序 → status 升序 → IP 升序`。评分简单固定：200=100，403=90，301/302=70。
 
-有效状态码仅 `200 / 301 / 302 / 403`，其余一律淘汰。每次请求只读取至多 1KB 响应体后立即关闭连接。
+有效状态码仅 `200 / 301 / 302 / 403`，其余一律淘汰。默认使用 HEAD 请求（`-http` HTTPing 模式），不下载响应体；仅当 `-http=false` 时使用 GET 请求并最多读取 1KB 响应体。
 
 ## 性能调优
 

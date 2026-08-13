@@ -67,7 +67,7 @@ func newFlagSet(opts *CLIOptions, out io.Writer) *flag.FlagSet {
 	fs.StringVar(&opts.userAgent, "user-agent", "", "User-Agent header sent to targets")
 	fs.StringVar(&opts.config, "config", "config.yaml", "path to the YAML config file")
 	fs.StringVar(&opts.outputDir, "output-dir", ".", "directory where best_ip.txt and result.json are written")
-	fs.BoolVar(&opts.http, "http", false, "use yx-tools style HTTPing (per-IP transport, RST close, averaged multi-request latency)")
+	fs.BoolVar(&opts.http, "http", true, "use yx-tools style HTTPing (per-IP transport, RST close, averaged multi-request latency); default on, disable with -http=false")
 	fs.IntVar(&opts.pingTimes, "ping-times", 0, "requests per IP when -http is enabled (default 1)")
 	fs.BoolVar(&opts.version, "version", false, "print version and exit")
 
@@ -130,7 +130,8 @@ Options:
   -output-dir string   directory for output files (default ".")
   -http                use yx-tools style HTTPing: per-IP transport with
                        RST close, redirects stopped, latency averaged over
-                       -ping-times requests (default false)
+                       -ping-times requests (default true, disable with
+                       -http=false)
   -ping-times int      requests per IP when -http is enabled (default 1)
   -version             print version and exit
   -h, -help            show this help and exit
