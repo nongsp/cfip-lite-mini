@@ -20,6 +20,12 @@ func main() {
 }
 
 func run(args []string) int {
+	// The "proxy" subcommand ports yx-tools' proxy flow: pull IP:port
+	// candidates from an external CSV/list and re-test them.
+	if len(args) > 0 && args[0] == "proxy" {
+		return runProxy(args[1:])
+	}
+
 	opts, err := parseCLI(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {

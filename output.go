@@ -50,6 +50,30 @@ func WriteBestIP(path string, results []Result, top int) (int, error) {
 	return n, nil
 }
 
+// WriteBestIPPorts writes one "IP:port" per line, keeping only the top
+// results. Used by proxy mode where every candidate carries its own port.
+// It returns the number of entries written.
+func WriteBestIPPorts(path string, results []Result, top int) (int, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	n := topLimit(top, results)
+	for i := 0; i < n; i++ {
+		r := results[i]
+		port := r.Port
+		if port <= 0 {
+			port = DefaultPort
+		}
+		if _, err := fmt.Fprintf(f, "%s:%d\n", r.IP, port); err != nil {
+			return i, err
+		}
+	}
+	return n, nil
+}
+
 // WriteJSON writes the top results as a JSON array to path.
 // It returns the number of results written.
 func WriteJSON(path string, results []Result, top int) (int, error) {

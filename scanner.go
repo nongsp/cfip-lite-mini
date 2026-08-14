@@ -17,9 +17,11 @@ import (
 // Result is a single successful probe.
 type Result struct {
 	IP     string   `json:"ip"`
+	Port   int      `json:"port,omitempty"`
 	Status int      `json:"status"`
 	Delay  Duration `json:"delay"`
 	Score  int      `json:"score"`
+	Colo   string   `json:"colo,omitempty"`
 }
 
 // MarshalJSON renders delay as a human readable string like "38ms".
@@ -61,6 +63,14 @@ type Scanner struct {
 	HTTP       bool
 	PingTimes  int
 	TLSRootCAs *x509.CertPool
+	// PortMapping overrides the target port per IP (proxy mode): each
+	// candidate from a user-supplied IP:port list carries its own port.
+	PortMapping map[string]int
+	// Colo is a comma separated list of expected colo codes (proxy mode).
+	// When set, probes whose response headers do not carry a matching colo
+	// are rejected. Mirrors yx-tools' -cfcolo filtering.
+	Colo string
+	// OnProgress reports scan progress.
 	OnProgress func(scanned, total uint64)
 
 	transport *http.Transport
@@ -97,14 +107,15 @@ func NewScanner(cfg *Config) *Scanner {
 	}
 
 	return &Scanner{
-		Domain:     cfg.Domain,
-		Port:       cfg.Port,
-		Timeout:    timeout,
-		UserAgent:  cfg.UserAgent,
-		HTTP:       cfg.HTTP,
-		PingTimes:  pingTimes,
-		TLSRootCAs: cfg.TLSRootCAs,
-		transport:  transport,
+		Domain:      cfg.Domain,
+		Port:        cfg.Port,
+		Timeout:     timeout,
+		UserAgent:   cfg.UserAgent,
+		HTTP:        cfg.HTTP,
+		PingTimes:   pingTimes,
+		TLSRootCAs:  cfg.TLSRootCAs,
+		PortMapping: make(map[string]int),
+		transport:   transport,
 		// Stop redirects in every mode: following a redirect would re-dial the
 		// Location host and defeat the enforced SNI/Host (the same approach as
 		// yx-tools' -http scanning method).
@@ -114,6 +125,23 @@ func NewScanner(cfg *Config) *Scanner {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
+}
+
+// portFor returns the per-IP port from PortMapping when present (proxy mode),
+// falling back to the scanner's global port.
+func (s *Scanner) portFor(ip netip.Addr) int {
+	if p, ok := s.PortMapping[ip.String()]; ok && p > 0 && p < 65536 {
+		return p
+	}
+	return s.Port
+}
+
+// rejectsColo reports whether the extracted colo fails the configured filter.
+func (s *Scanner) rejectsColo(colo string) bool {
+	if s.Colo == "" {
+		return false
+	}
+	return !matchColo(splitColos(s.Colo), colo)
 }
 
 // newRequest builds the HTTPS request that always targets IP:port while
@@ -136,7 +164,7 @@ func (s *Scanner) newRequest(ctx context.Context, addr string) (*http.Request, e
 // Network errors, timeouts, TLS failures and invalid status codes simply
 // yield a non-valid Result and never abort the whole scan.
 func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
-	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.Port))
+	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.portFor(ip)))
 	start := time.Now()
 
 	probeCtx, cancel := context.WithTimeout(ctx, s.Timeout)
@@ -156,11 +184,18 @@ func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 	_ = resp.Body.Close()
 
+	colo := getHeaderColo(resp.Header)
+	if s.rejectsColo(colo) {
+		return Result{IP: ip.String(), Status: 0, Delay: Duration(time.Since(start))}
+	}
+
 	return Result{
 		IP:     ip.String(),
+		Port:   s.portFor(ip),
 		Status: resp.StatusCode,
 		Delay:  Duration(time.Since(start)),
 		Score:  scoreFor(resp.StatusCode),
+		Colo:   colo,
 	}
 }
 
@@ -175,7 +210,7 @@ func (s *Scanner) probe(ctx context.Context, ip netip.Addr) Result {
 //     the connection is never re-dialed to the Location host;
 //   - the latency is averaged over PingTimes requests per IP.
 func (s *Scanner) probeHTTPing(ctx context.Context, ip netip.Addr) Result {
-	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.Port))
+	addr := net.JoinHostPort(ip.String(), strconv.Itoa(s.portFor(ip)))
 
 	tr := &http.Transport{
 		Proxy: nil,
@@ -209,6 +244,7 @@ func (s *Scanner) probeHTTPing(ctx context.Context, ip netip.Addr) Result {
 	}
 
 	statusCode := 0
+	colo := ""
 	success := 0
 	var totalDelay time.Duration
 	var start time.Time
@@ -243,6 +279,12 @@ func (s *Scanner) probeHTTPing(ctx context.Context, ip netip.Addr) Result {
 				return Result{IP: ip.String(), Status: resp.StatusCode, Delay: Duration(time.Since(start))}
 			}
 			statusCode = resp.StatusCode
+			colo = getHeaderColo(resp.Header)
+			// yx-tools rejects an IP as soon as its colo does not match the
+			// requested -cfcolo list, no further requests are sent.
+			if s.rejectsColo(colo) {
+				return Result{IP: ip.String(), Status: 0, Delay: Duration(time.Since(start))}
+			}
 		}
 		success++
 		totalDelay += time.Since(start)
@@ -253,9 +295,11 @@ func (s *Scanner) probeHTTPing(ctx context.Context, ip netip.Addr) Result {
 	}
 	return Result{
 		IP:     ip.String(),
+		Port:   s.portFor(ip),
 		Status: statusCode,
 		Delay:  Duration(totalDelay / time.Duration(success)),
 		Score:  scoreFor(statusCode),
+		Colo:   colo,
 	}
 }
 

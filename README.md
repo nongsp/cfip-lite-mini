@@ -27,6 +27,7 @@ TLS SNI = domain + HTTP Host = domain
 - 低资源：IP 逐条生成，支持 IPv6，单文件约 8MB
 - 可移植：Linux amd64 / arm64 / armv7、Windows amd64，适合 OpenWrt
 - 标准库优先：仅一个 YAML 解析依赖 `gopkg.in/yaml.v3`
+- 双模式：主扫描（CIDR/IP/Range 全段筛选）+ `proxy` 子命令（优选反代，移植自 yx-tools）
 
 ## 工作原理
 
@@ -87,6 +88,12 @@ cp config.yaml config.local.yaml
 ./cfip-lite-mini -config config.local.yaml
 ```
 
+优选反代（从别人分享的结果里筛可用 `IP:port`）：
+
+```bash
+./cfip-lite-mini proxy -i result.csv -test -colo HKG,SIN
+```
+
 ## CLI 参数
 
 | 参数 | 说明 | 可重复 |
@@ -135,6 +142,65 @@ cp config.yaml config.local.yaml
 ```
 
 HTTPing 方法仍保持本项目的核心约束：连接目标是 `IP:port`，TLS SNI 与 HTTP Host 均为 `domain`。
+
+## proxy 子命令（优选反代）
+
+完整移植 [yx-tools](https://github.com/byJoey/yx-tools) 的 `yx proxy` 优选反代流程：把别人分享的测速结果 CSV、资产导出的 `ip,port` 表或每行 `IP:端口` 的裸列表，提取成反代列表后，用与主扫描完全相同的检测方法重新测速，按延迟排序输出可用的 `IP:port`。
+
+```bash
+# 只提取列表（不测速）
+./cfip-lite-mini proxy -i result.csv -o ips_ports.txt
+
+# 提取后立即测速
+./cfip-lite-mini proxy -i result.csv -test
+
+# 只保留回源地区为香港/新加坡的（自动启用 HTTPing 以读取响应头地区码）
+./cfip-lite-mini proxy -i list.txt -test -colo HKG,SIN
+```
+
+### 检测方法（与 yx-tools proxy 完全一致）
+
+- **来源解析**：优先按 CSV 解析，兼容 yx-tools 中文表头 `IP 地址`/`端口` 与资产导出的英文小写表头 `ip`/`port`；CSV 读不出时退回逐行解析裸列表，每行 `IP[:端口]`，支持 `#` 备注（GitHub 风格 `IP:端口#备注`）与纯 IPv6。
+- **每 IP 独立端口（PortMapping）**：列表里每个候选携带自己的端口（默认 443），测速时按各自的端口连接——这正是反代测速与全段扫描的本质区别，对应 yx-tools 的 `PortMapping`。
+- **HTTPing 检测**：与主扫描的 `-http` 方法相同（每 IP 独立 Transport、`SetLinger(0)` RST 关闭、阻止重定向、`-ping-times` 次取平均延迟），完整走 TLS 握手与服务端响应。
+- **延迟上限（-tl）**：平均延迟超过该值（ms）的候选直接淘汰，默认 0 不限制。
+- **地区过滤（-colo）**：从 CDN 响应头提取地区码（Cloudflare `cf-ray`、AWS CloudFront `x-amz-cf-pop`、Fastly `x-served-by`、BunnyCDN、CDN77、Gcore），只保留匹配指定地区的候选。地区码只能从 HTTP 响应头获取，因此指定 `-colo` 时自动启用 HTTPing。
+- **输出**：`best_ip.txt` 每行一个 `IP:port`（按延迟升序），`result.json` 带 `port`、`colo` 字段。
+
+### proxy 参数
+
+| 参数 | 说明 |
+| --- | --- |
+| `-i` | 来源文件：测速结果 CSV 或每行 `IP[:端口]` 的列表（默认 `result.csv`） |
+| `-o` | 输出的反代列表文件（默认 `ips_ports.txt`） |
+| `-take` | 从来源取前 N 条，0 表示全部 |
+| `-test` | 生成列表后直接对该列表测速 |
+| `-domain` | 目标域名，用于 TLS SNI 与 HTTP Host（默认 `ipv4.svi.cc.cd`） |
+| `-port` | 列表中未指定端口的 IP 使用的端口（默认 `443`） |
+| `-timeout` | 单 IP 总超时，默认 `300ms` |
+| `-t` | 并发 worker 数，默认 `500` |
+| `-n` | 输出最佳 IP 数量，默认 `30` |
+| `-tl` | 平均延迟上限 ms，超过的淘汰（0 不限制） |
+| `-colo` | 期望地区码，逗号分隔，如 `HKG,SIN`（指定后自动启用 HTTPing） |
+| `-http` | 用 HTTPing 测速（默认 `true`） |
+| `-ping-times` | 启用 `-http` 时每个 IP 的测速请求次数（默认 `1`） |
+| `-user-agent` | 请求 User-Agent |
+| `-mt` | 整轮测速时长上限（秒），0 不限 |
+| `-output-dir` | 输出目录（默认当前目录） |
+
+```bash
+# 来源是 yx-tools / 本工具导出的 CSV
+./cfip-lite-mini proxy -i result.csv -test -take 50
+
+# 来源是别人分享的每行 IP:端口 列表，带备注
+./cfip-lite-mini proxy -i shared_list.txt -test -colo HKG,SIN -tl 300
+
+# 列表中端口不是 443（如 2053/8443），每个 IP 用自己的端口连接
+./cfip-lite-mini proxy -i custom_ports.txt -test
+
+# 查看 proxy 帮助
+./cfip-lite-mini proxy -h
+```
 
 ## config.yaml
 
@@ -264,6 +330,13 @@ docker run --rm -it \
 43.198.5.201
 ```
 
+`proxy` 模式下每行是 `IP:port`：
+
+```text
+43.198.100.202:443
+43.198.104.5:443
+```
+
 ### result.json
 
 ```json
@@ -273,6 +346,21 @@ docker run --rm -it \
     "status": 200,
     "delay": "38ms",
     "score": 100
+  }
+]
+```
+
+`proxy` 模式下额外包含 `port` 与 `colo`（地区码）字段：
+
+```json
+[
+  {
+    "ip": "43.198.100.202",
+    "port": 443,
+    "status": 403,
+    "delay": "177ms",
+    "score": 90,
+    "colo": "HKG"
   }
 ]
 ```

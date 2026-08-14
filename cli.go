@@ -113,6 +113,7 @@ func usage(out io.Writer) {
 
 Usage:
   cfip-lite-mini [options]
+  cfip-lite-mini proxy [options]   # 优选反代：从 CSV/列表提取 IP:端口 并测速
 
 Options:
   -domain string       target domain used for TLS SNI and HTTP Host
@@ -135,6 +136,8 @@ Options:
   -ping-times int      requests per IP when -http is enabled (default 1)
   -version             print version and exit
   -h, -help            show this help and exit
+
+Run 'cfip-lite-mini proxy -h' for proxy subcommand options.
 
 CIDR/IP/Range flags may be repeated and override ip_range from config.yaml.
 `)
