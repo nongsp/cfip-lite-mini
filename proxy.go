@@ -344,12 +344,12 @@ func runProxy(args []string) int {
 
 // usageProxy prints help for the proxy subcommand.
 func usageProxy(out io.Writer) {
-	fmt.Fprintf(out, `cfip-lite-mini proxy - 从外部 CSV/列表提取反代 IP:端口 并测速
+	fmt.Fprintf(out, `cfip proxy - 从外部 CSV/列表提取反代 IP:端口 并测速
 
 用法（对齐 yx-tools 的 proxy 优选反代流程）：
-  cfip-lite-mini proxy -i result.csv -o ips_ports.txt          # 仅提取列表
-  cfip-lite-mini proxy -i result.csv -test                     # 提取后立即测速
-  cfip-lite-mini proxy -i list.txt -test -colo HKG,SIN         # 只留回源香港/新加坡
+  cfip proxy -i result.csv -o ips_ports.txt          # 仅提取列表
+  cfip proxy -i result.csv -test                     # 提取后立即测速
+  cfip proxy -i list.txt -test -colo HKG,SIN         # 只留回源香港/新加坡
 
 选项：
   -i string        来源文件：测速结果 CSV 或每行 IP[:端口] 的列表

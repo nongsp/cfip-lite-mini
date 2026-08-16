@@ -32,11 +32,11 @@ func run(args []string) int {
 			return 0
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		fmt.Fprintln(os.Stderr, "run 'cfip-lite-mini -h' for usage")
+		fmt.Fprintln(os.Stderr, "run 'cfip -h' for usage")
 		return 2
 	}
 	if opts.version {
-		fmt.Printf("cfip-lite-mini %s\n", version)
+		fmt.Printf("cfip %s\n", version)
 		return 0
 	}
 
@@ -84,7 +84,7 @@ func run(args []string) int {
 		}
 	}
 
-	fmt.Println("=== cfip-lite-mini ===")
+	fmt.Println("=== cfip ===")
 	fmt.Printf("domain:       %s\n", cfg.Domain)
 	fmt.Printf("port:         %d\n", cfg.Port)
 	fmt.Printf("input ranges: %v\n", cfg.IPRange)

@@ -1,4 +1,4 @@
-module github.com/nongsp/cfip-lite-mini
+module github.com/nongsp/cfip
 
 go 1.22
 

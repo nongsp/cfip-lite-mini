@@ -51,7 +51,7 @@ type CLIOptions struct {
 }
 
 func newFlagSet(opts *CLIOptions, out io.Writer) *flag.FlagSet {
-	fs := flag.NewFlagSet("cfip-lite-mini", flag.ContinueOnError)
+	fs := flag.NewFlagSet("cfip", flag.ContinueOnError)
 	fs.SetOutput(out)
 	fs.Usage = func() { usage(os.Stdout) }
 
@@ -109,11 +109,11 @@ func parseCLI(args []string) (*CLIOptions, error) {
 
 // usage prints help to the given writer.
 func usage(out io.Writer) {
-	fmt.Fprintf(out, `cfip-lite-mini - a minimal high-concurrency CIDR/IP HTTPS availability scanner
+	fmt.Fprintf(out, `cfip - a minimal high-concurrency CIDR/IP HTTPS availability scanner
 
 Usage:
-  cfip-lite-mini [options]
-  cfip-lite-mini proxy [options]   # 优选反代：从 CSV/列表提取 IP:端口 并测速
+  cfip [options]
+  cfip proxy [options]   # 优选反代：从 CSV/列表提取 IP:端口 并测速
 
 Options:
   -domain string       target domain used for TLS SNI and HTTP Host
@@ -137,7 +137,7 @@ Options:
   -version             print version and exit
   -h, -help            show this help and exit
 
-Run 'cfip-lite-mini proxy -h' for proxy subcommand options.
+Run 'cfip proxy -h' for proxy subcommand options.
 
 CIDR/IP/Range flags may be repeated and override ip_range from config.yaml.
 `)

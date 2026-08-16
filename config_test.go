@@ -52,7 +52,7 @@ timeout: 300ms
 concurrency: 500
 top: 30
 max_ips: 1000000
-user_agent: cfip-lite-mini/1.0
+user_agent: cfip/1.0
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)

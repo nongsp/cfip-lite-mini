@@ -59,7 +59,7 @@ func testConfig(t *testing.T, ts *httptest.Server, timeout time.Duration) *Confi
 	cfg.Domain = testDomain
 	cfg.Port = ts.Listener.Addr().(*net.TCPAddr).Port
 	cfg.Timeout = Duration(timeout)
-	cfg.UserAgent = "cfip-lite-mini-test/1.0"
+	cfg.UserAgent = "cfip-test/1.0"
 	cfg.TLSRootCAs = pool
 	return cfg
 }
@@ -74,7 +74,7 @@ func TestProbeUsesSNIAndHost(t *testing.T) {
 			http.Error(w, "bad SNI: missing or wrong", 500)
 			return
 		}
-		if r.UserAgent() != "cfip-lite-mini-test/1.0" {
+		if r.UserAgent() != "cfip-test/1.0" {
 			http.Error(w, "bad UA: "+r.UserAgent(), 500)
 			return
 		}

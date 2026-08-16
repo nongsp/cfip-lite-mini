@@ -59,10 +59,11 @@ jobs:
           set -eux
           VERSION="${GITHUB_REF_NAME}"
           mkdir -p dist
-          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-lite-mini-linux-amd64 .
-          GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-lite-mini-linux-arm64 .
-          GOOS=linux   GOARCH=arm   GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-lite-mini-linux-armv7 .
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-lite-mini-windows-amd64.exe .
+          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-linux-amd64 .
+          GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-linux-arm64 .
+          GOOS=linux   GOARCH=arm   GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-linux-armv7 .
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-windows-amd64.exe .
+          GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/cfip-android-arm64 .
 
       - name: Generate checksums
         run: |

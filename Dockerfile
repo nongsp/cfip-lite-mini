@@ -12,7 +12,7 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/cfip-lite-mini .
+    -o /out/cfip .
 
 # Runtime stage
 FROM alpine:3.20
@@ -20,7 +20,7 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates \
     && adduser -D -u 10001 app
 
-COPY --from=builder /out/cfip-lite-mini /usr/local/bin/cfip-lite-mini
+COPY --from=builder /out/cfip /usr/local/bin/cfip
 
 USER app
 WORKDIR /data
@@ -28,4 +28,4 @@ WORKDIR /data
 # Mount config.yaml here; output files are written here too.
 VOLUME ["/data"]
 
-ENTRYPOINT ["/usr/local/bin/cfip-lite-mini"]
+ENTRYPOINT ["/usr/local/bin/cfip"]

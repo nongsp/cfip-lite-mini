@@ -17,7 +17,7 @@ const (
 	DefaultTop         = 30
 	DefaultMaxIPs      = 1_000_000
 	AbsMaxIPs          = 10_000_000
-	DefaultUserAgent   = "cfip-lite-mini/1.0"
+	DefaultUserAgent   = "cfip/1.0"
 	DefaultPingTimes   = 1
 )
 

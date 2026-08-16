@@ -1,4 +1,4 @@
-# cfip-lite-mini
+# cfip
 
 一个极简、高并发、低资源占用的 CIDR/IP HTTPS 可用性扫描器。
 
@@ -25,7 +25,7 @@ TLS SNI = domain + HTTP Host = domain
 - 极简：核心逻辑一个二进制，零运行时依赖（无 bash/curl/openssl/python/systemd）
 - 高并发：goroutine + worker pool + channel，默认 500 并发
 - 低资源：IP 逐条生成，支持 IPv6，单文件约 8MB
-- 可移植：Linux amd64 / arm64 / armv7、Windows amd64，适合 OpenWrt
+- 可移植：Linux amd64 / arm64 / armv7、Windows amd64、Android arm64，适合 OpenWrt 与 Android 设备
 - 标准库优先：仅一个 YAML 解析依赖 `gopkg.in/yaml.v3`
 - 双模式：主扫描（CIDR/IP/Range 全段筛选）+ `proxy` 子命令（优选反代，移植自 yx-tools）
 
@@ -56,28 +56,29 @@ TLS SNI = domain + HTTP Host = domain
 要求 Go 1.22+。
 
 ```bash
-go build -trimpath -ldflags="-s -w" -o cfip-lite-mini .
+go build -trimpath -ldflags="-s -w" -o cfip .
 ```
 
 ### Release 二进制
 
-从 [Releases](https://github.com/nongsp/cfip-lite-mini/releases) 下载对应平台文件：
+从 [Releases](https://github.com/nongsp/cfip/releases) 下载对应平台文件：
 
-- `cfip-lite-mini-linux-amd64`
-- `cfip-lite-mini-linux-arm64`
-- `cfip-lite-mini-linux-armv7`
-- `cfip-lite-mini-windows-amd64.exe`
+- `cfip-linux-amd64`
+- `cfip-linux-arm64`
+- `cfip-linux-armv7`
+- `cfip-windows-amd64.exe`
+- `cfip-android-arm64`
 
 下载后赋予执行权限即可：
 
 ```bash
-chmod +x cfip-lite-mini-linux-amd64
+chmod +x cfip-linux-amd64
 ```
 
 ## 快速开始
 
 ```bash
-./cfip-lite-mini -cidr 43.198.0.0/16
+./cfip -cidr 43.198.0.0/16
 ```
 
 或使用配置文件：
@@ -85,13 +86,13 @@ chmod +x cfip-lite-mini-linux-amd64
 ```bash
 cp config.yaml config.local.yaml
 # 编辑 config.local.yaml 填写你的 domain 与 ip_range
-./cfip-lite-mini -config config.local.yaml
+./cfip -config config.local.yaml
 ```
 
 优选反代（从别人分享的结果里筛可用 `IP:port`）：
 
 ```bash
-./cfip-lite-mini proxy -i result.csv -test -colo HKG,SIN
+./cfip proxy -i result.csv -test -colo HKG,SIN
 ```
 
 ## CLI 参数
@@ -129,16 +130,16 @@ cp config.yaml config.local.yaml
 
 ```bash
 # 默认即 HTTPing（无需 -http），每 IP 测 4 次取平均延迟
-./cfip-lite-mini -cidr 43.198.0.0/16 -ping-times 4
+./cfip -cidr 43.198.0.0/16 -ping-times 4
 
 # 显式指定（默认已开启）
-./cfip-lite-mini -cidr 43.198.0.0/16 -http
+./cfip -cidr 43.198.0.0/16 -http
 
 # 需要关闭时
-./cfip-lite-mini -cidr 43.198.0.0/16 -http=false
+./cfip -cidr 43.198.0.0/16 -http=false
 
 # 效果等同的配置文件方式
-./cfip-lite-mini -config config.yaml
+./cfip -config config.yaml
 ```
 
 HTTPing 方法仍保持本项目的核心约束：连接目标是 `IP:port`，TLS SNI 与 HTTP Host 均为 `domain`。
@@ -149,13 +150,13 @@ HTTPing 方法仍保持本项目的核心约束：连接目标是 `IP:port`，TL
 
 ```bash
 # 只提取列表（不测速）
-./cfip-lite-mini proxy -i result.csv -o ips_ports.txt
+./cfip proxy -i result.csv -o ips_ports.txt
 
 # 提取后立即测速
-./cfip-lite-mini proxy -i result.csv -test
+./cfip proxy -i result.csv -test
 
 # 只保留回源地区为香港/新加坡的（自动启用 HTTPing 以读取响应头地区码）
-./cfip-lite-mini proxy -i list.txt -test -colo HKG,SIN
+./cfip proxy -i list.txt -test -colo HKG,SIN
 ```
 
 ### 检测方法（与 yx-tools proxy 完全一致）
@@ -190,16 +191,16 @@ HTTPing 方法仍保持本项目的核心约束：连接目标是 `IP:port`，TL
 
 ```bash
 # 来源是 yx-tools / 本工具导出的 CSV
-./cfip-lite-mini proxy -i result.csv -test -take 50
+./cfip proxy -i result.csv -test -take 50
 
 # 来源是别人分享的每行 IP:端口 列表，带备注
-./cfip-lite-mini proxy -i shared_list.txt -test -colo HKG,SIN -tl 300
+./cfip proxy -i shared_list.txt -test -colo HKG,SIN -tl 300
 
 # 列表中端口不是 443（如 2053/8443），每个 IP 用自己的端口连接
-./cfip-lite-mini proxy -i custom_ports.txt -test
+./cfip proxy -i custom_ports.txt -test
 
 # 查看 proxy 帮助
-./cfip-lite-mini proxy -h
+./cfip proxy -h
 ```
 
 ## config.yaml
@@ -217,7 +218,7 @@ timeout: 300ms
 concurrency: 500
 top: 30
 max_ips: 1000000
-user_agent: cfip-lite-mini/1.0
+user_agent: cfip/1.0
 http: true
 ping_times: 1
 ```
@@ -230,27 +231,27 @@ ping_times: 1
 
 ```bash
 # CIDR
-./cfip-lite-mini -domain d.example.com -cidr 43.198.0.0/16
+./cfip -domain d.example.com -cidr 43.198.0.0/16
 
 # 单个 IP
-./cfip-lite-mini -domain d.example.com -ip 43.198.5.166
+./cfip -domain d.example.com -ip 43.198.5.166
 
 # IP 起止范围（闭区间）
-./cfip-lite-mini -domain d.example.com -range 159.60.146.10-159.60.146.200
+./cfip -domain d.example.com -range 159.60.146.10-159.60.146.200
 
 # 混合多条，同一参数可重复
-./cfip-lite-mini -domain d.example.com \
+./cfip -domain d.example.com \
   -cidr 43.198.0.0/16 \
   -cidr 43.199.0.0/16 \
   -ip 43.198.5.166 \
   -range 159.60.146.10-159.60.146.200
 
 # 调整并发与超时
-./cfip-lite-mini -domain d.example.com -cidr 43.198.0.0/16 \
+./cfip -domain d.example.com -cidr 43.198.0.0/16 \
   -concurrency 800 -timeout 500ms -top 50
 
 # 查看版本
-./cfip-lite-mini -version
+./cfip -version
 ```
 
 ## 平台使用
@@ -258,8 +259,8 @@ ping_times: 1
 ### Linux
 
 ```bash
-chmod +x cfip-lite-mini-linux-amd64
-./cfip-lite-mini-linux-amd64 -config config.yaml
+chmod +x cfip-linux-amd64
+./cfip-linux-amd64 -config config.yaml
 ```
 
 ### Windows
@@ -267,7 +268,7 @@ chmod +x cfip-lite-mini-linux-amd64
 在 PowerShell 中：
 
 ```powershell
-.\cfip-lite-mini-windows-amd64.exe -config config.yaml
+.\cfip-windows-amd64.exe -config config.yaml
 ```
 
 ### OpenWrt
@@ -276,23 +277,36 @@ chmod +x cfip-lite-mini-linux-amd64
 
 ```bash
 # 上传二进制后
-chmod +x /root/cfip-lite-mini
-/roo./cfip-lite-mini -cidr 43.198.0.0/16 -top 10
+chmod +x /root/cfip
+/root/cfip -cidr 43.198.0.0/16 -top 10
 ```
 
-`cfip-lite-mini` 是静态编译的纯 Go 程序，不需要安装任何依赖，二进制约 8MB，适合在低内存设备上运行。注意：OpenWrt 一般建议 `-concurrency` 适当调低（如 100-300）。
+`cfip` 是静态编译的纯 Go 程序，不需要安装任何依赖，二进制约 8MB，适合在低内存设备上运行。注意：OpenWrt 一般建议 `-concurrency` 适当调低（如 100-300）。
+
+### Android
+
+`cfip-android-arm64` 是面向 Android aarch64（armv8）内核的静态 ELF 二进制，不依赖 glibc（Android 上不存在 glibc），由 Android 自带的 bionic libc 之外完全自包含，`adb push` 到设备后即可直接运行：
+
+```bash
+# 上传到设备 /data/local/tmp（应用沙箱外，可执行）
+adb push cfip-android-arm64 /data/local/tmp/cfip
+adb shell chmod +x /data/local/tmp/cfip
+adb shell /data/local/tmp/cfip -cidr 43.198.0.0/16 -top 10
+```
+
+如需在 Termux 等常规 Linux 环境运行 Android 版，`cfip-linux-arm64` 是更合适的选择；Android 版专为 Android 内核适配。
 
 ## Docker
 
 ```bash
 # 构建镜像
-docker build -t cfip-lite-mini .
+docker build -t cfip .
 
 # 运行：挂载配置与输出目录
 docker run --rm -it \
   -v "$(pwd)/config.yaml:/data/config.yaml" \
   -v "$(pwd)/out:/data/out" \
-  cfip-lite-mini -config /data/config.yaml -output-dir /data/out
+  cfip -config /data/config.yaml -output-dir /data/out
 ```
 
 镜像基于 `alpine`，仅含 CA 证书与静态二进制，以非 root 用户运行。
@@ -303,18 +317,19 @@ docker run --rm -it \
 
 - 任何 push/PR：checkout → setup Go → `gofmt` 检查 → `go vet` → `go test` → `go build`
 - CI 不扫描任何真实公网 CIDR
-- 打 Tag（如 `v1.0.0`）时自动触发 Release，构建四个平台二进制并生成 `checksums.txt`
+- 打 Tag（如 `v1.0.0`）时自动触发 Release，构建五个平台二进制并生成 `checksums.txt`
 
 ## Release 编译产物
 
 | 平台 | 文件 |
 | --- | --- |
-| Linux amd64 | `cfip-lite-mini-linux-amd64` |
-| Linux arm64 | `cfip-lite-mini-linux-arm64` |
-| Linux armv7 | `cfip-lite-mini-linux-armv7` |
-| Windows amd64 | `cfip-lite-mini-windows-amd64.exe` |
+| Linux amd64 | `cfip-linux-amd64` |
+| Linux arm64 | `cfip-linux-arm64` |
+| Linux armv7 | `cfip-linux-armv7` |
+| Windows amd64 | `cfip-windows-amd64.exe` |
+| Android arm64 | `cfip-android-arm64` |
 
-所有二进制使用 `CGO_ENABLED=0`、`-ldflags="-s -w"` 静态编译，版本号通过 `-X main.version=<tag>` 注入，并附带 SHA256 `checksums.txt`。
+所有二进制使用 `CGO_ENABLED=0`、`-ldflags="-s -w"` 静态编译，版本号通过 `-X main.version=<tag>` 注入，并附带 SHA256 `checksums.txt`。`cfip-android-arm64` 为面向 Android aarch64 内核的静态 ELF（`GOOS=android`），不依赖 glibc。
 
 ## 输出格式
 
@@ -395,10 +410,11 @@ go build ./...
 交叉编译验证：
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build .
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build .
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build .
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build .
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build .
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm   GOARM=7 go build .
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
+CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build .
 ```
 
 ## License
